@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexien Internal Position Board</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0f172a;
+    --panel:     #1e293b;
+    --rule:      #334155;
+    --accent:    #0ea5e9;
+    --accent-dk: #0284c7;
+    --text:      #f8fafc;
+    --dim:       #94a3b8;
+    --dimmer:    #64748b;
+    --money:     #4ade80;
+    --name:      #fcd34d;
+
+    --row-h:  64px;    /* 화면 높이에 맞춰 JS가 덮어씁니다 */
+    --cell-fs: 1.45rem; /* 열 개수에 맞춰 JS가 덮어씁니다 */
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: 'Pretendard', -apple-system, BlinkMacSystemFont,
+                 'Segoe UI', 'Noto Sans KR', 'Malgun Gothic', Arial, sans-serif;
+    font-feature-settings: "tnum" 1;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── 헤더 ───────────────────────────────── */
+
+  header {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 24px; padding: 22px 40px;
+    background: var(--panel);
+    border-bottom: 4px solid var(--accent);
+    flex: none;
+  }
+
+  .brand { display: flex; align-items: center; gap: 20px; min-width: 0; }
+  .logo  { font-size: 2.9rem; font-weight: 900; color: var(--accent); letter-spacing: 2px; }
+  .title {
+    font-size: 1.9rem; font-weight: 600; color: #cbd5e1;
+    border-left: 2px solid #475569; padding-left: 20px; white-space: nowrap;
+  }
+
+  .meta-info { display: flex; align-items: center; gap: 14px; flex: none; }
+
+  .sync { display: flex; align-items: center; gap: 9px; font-size: 1.15rem; color: var(--dim); white-space: nowrap; }
+  .dot  { width: 9px; height: 9px; border-radius: 50%; background: var(--money); flex: none; }
+  .sync[data-state="loading"] .dot { background: var(--dimmer); }
+  .sync[data-state="stale"]   .dot { background: var(--name); }
+  .sync[data-state="error"]   .dot { background: #ef4444; }
+  .sync[data-state="stale"], .sync[data-state="error"] { color: var(--name); }
+
+  .page-info { background: var(--rule); padding: 6px 15px; font-size: 1.15rem; font-weight: bold; border-radius: 6px; white-space: nowrap; }
+  .count     { background: var(--accent-dk); color: #fff; padding: 6px 15px; font-size: 1.3rem; font-weight: bold; border-radius: 6px; white-space: nowrap; }
+
+  /* ── 테이블 ─────────────────────────────── */
+
+  main { flex: 1 1 auto; padding: 24px 40px; min-height: 0; overflow: hidden; }
+
+  table { width: 100%; border-collapse: collapse; text-align: left; table-layout: fixed; }
+
+  th {
+    font-size: 1.2rem; color: #38bdf8; font-weight: 600;
+    letter-spacing: .04em; padding: 0 16px 14px 0;
+    border-bottom: 2px solid var(--rule);
+    text-transform: uppercase;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  td {
+    height: var(--row-h);
+    font-size: var(--cell-fs);
+    color: #cbd5e1;
+    padding: 0 16px 0 0;
+    border-bottom: 1px solid var(--panel);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  tbody tr { transition: opacity .28s ease; }
+  tbody.turning tr { opacity: 0; }
+
+  /* 역할이 감지된 열만 강조합니다 */
+  td.role-primary   { color: var(--text);  font-weight: 700; font-size: calc(var(--cell-fs) + .1rem); }
+  td.role-secondary { color: #e2e8f0;      font-weight: 600; }
+  td.role-money     { color: var(--money); font-weight: 700; }
+  td.role-name      { color: var(--name);  font-weight: 700; }
+  td.role-muted     { color: var(--dim);   font-size: calc(var(--cell-fs) - .2rem); }
+  td.is-blank       { color: var(--dimmer); }
+
+  .badge {
+    padding: 6px 12px; border-radius: 6px;
+    font-size: calc(var(--cell-fs) - .28rem); font-weight: bold;
+    text-align: center; display: inline-block; min-width: 108px;
+  }
+  .badge-urgent   { background: #ef4444; color: #fff; }
+  .badge-hot      { background: #f97316; color: #fff; }
+  .badge-new      { background: #3b82f6; color: #fff; }
+  .badge-standard { background: #475569; color: #fff; }
+
+  /* ── 상태 메시지 ────────────────────────── */
+
+  .notice { display: none; padding: 60px 0 0; font-size: 1.5rem; color: var(--dim); line-height: 1.7; }
+  .notice.on { display: block; }
+  .notice b { color: var(--text); display: block; font-size: 1.8rem; margin-bottom: 10px; }
+  .notice code {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    background: var(--panel); padding: 2px 8px; border-radius: 4px;
+    font-size: 1.25rem; color: #7dd3fc;
+  }
+
+  /* ── 티커 ───────────────────────────────── */
+
+  footer { display: flex; align-items: center; background: var(--panel); height: 70px; flex: none; border-top: 1px solid var(--rule); }
+  .ticker-label {
+    background: var(--accent); color: #fff; padding: 0 30px; height: 100%;
+    display: flex; align-items: center; font-size: 1.3rem; font-weight: bold;
+    z-index: 10; box-shadow: 2px 0 10px rgba(0,0,0,.5); white-space: nowrap; flex: none;
+  }
+  .ticker-container { flex: 1 1 auto; overflow: hidden; min-width: 0; }
+  .ticker-text {
+    display: inline-block; white-space: nowrap;
+    font-size: 1.4rem; color: #f1f5f9; will-change: transform;
+    animation: scroll var(--dur, 30s) linear infinite;
+  }
+  @keyframes scroll {
+    from { transform: translateX(var(--from, 100%)); }
+    to   { transform: translateX(var(--to, -100%)); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ticker-text { animation: none; transform: none; }
+    tbody tr { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="logo">NEXIEN</div>
+    <div class="title">INTERNAL POSITION BOARD</div>
+  </div>
+  <div class="meta-info">
+    <span class="sync" id="sync" data-state="loading">
+      <span class="dot"></span><span id="sync-text">연결 중</span>
+    </span>
+    <span class="page-info" id="page-indicator">PAGE — / —</span>
+    <span class="count" id="total-count">0 ACTIVE POSITIONS</span>
+  </div>
+</header>
+
+<main>
+  <table>
+    <thead><tr id="table-head"></tr></thead>
+    <tbody id="table-body"></tbody>
+  </table>
+  <div class="notice" id="notice"></div>
+</main>
+
+<footer>
+  <div class="ticker-label">INTERNAL UPDATES</div>
+  <div class="ticker-container" id="ticker-container">
+    <div class="ticker-text" id="ticker-text"></div>
+  </div>
+</footer>
+
+<script>
+/* ══════════════════════════════════════════════════
+   설정 — 여기만 채우면 됩니다
+   ══════════════════════════════════════════════════ */
+
+const SHEET_ID = '1RLi1JVfGdRix5mlWnq0XO_WdhBB9aPRlfUAF3jEEBOw';
+
+// 포지션 탭 이름. 비우면 첫 번째 탭
+const SHEET_NAME = '';
+
+// 공지를 A열에 한 줄씩 적어 둘 탭. 비우면 아래 문구를 씁니다
+const NOTICE_SHEET_NAME = 'Notice';
+const FALLBACK_NOTICE = '공지사항 시트 연결을 확인해 주세요.';
+
+// 보드에서 숨길 열 이름. 시트에는 두되 화면에만 안 띄우고 싶을 때
+const HIDE_COLUMNS = [];
+
+const PAGE_SIZE     = 'auto';  // 숫자로 바꾸면 고정
+const PAGE_INTERVAL = 15000;
+const SYNC_INTERVAL = 60000;
+const STALE_AFTER   = 300000;
+
+/* ══════════════════════════════════════════════════ */
+
+
+const $ = id => document.getElementById(id);
+
+let columns     = [];   // [{ label, role, weight }]
+let rows        = [];   // [[셀문자열, ...], ...]
+let page        = 0;
+let pageSize    = 8;
+let lastSuccess = 0;
+let pageTimer   = null;
+
+
+/* ── gviz JSONP ───────────────────────────── */
+
+function loadSheet(sheetName, headerRows) {
+  return new Promise((resolve, reject) => {
+    const cb = '__nx' + Math.random().toString(36).slice(2);
+    const s  = document.createElement('script');
+    const timeout = setTimeout(() => { done(); reject(new Error('응답 시간 초과')); }, 15000);
+
+    function done() { clearTimeout(timeout); delete window[cb]; s.remove(); }
+
+    window[cb] = res => { done(); resolve(res); };
+    s.onerror  = () => { done(); reject(new Error('시트에 연결할 수 없습니다')); };
+
+    let url = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID
+            + '/gviz/tq?tqx=out:json;responseHandler:' + cb;
+    if (sheetName) url += '&sheet=' + encodeURIComponent(sheetName);
+
+    // 첫 행을 헤더로 못박습니다. 생략하면 gviz 가 추측하고,
+    // 모든 열이 텍스트인 표에서는 추측이 빗나갑니다.
+    url += '&headers=' + (headerRows === undefined ? 1 : headerRows);
+    url += '&_=' + Date.now();
+
+    s.src = url;
+    document.head.appendChild(s);
+  });
+}
+
+
+/* ── 셀 읽기 ──────────────────────────────── */
+
+function cellText(c) {
+  if (!c || c.v === null || c.v === undefined) return '';
+  if (c.f) return String(c.f).trim();                 // 시트의 표시 서식 우선
+  if (typeof c.v === 'string' && /^Date\(/.test(c.v)) {
+    const [y, m, d] = c.v.slice(5, -1).split(',').map(Number);
+    return new Date(y, m, d).toLocaleDateString('ko-KR');
+  }
+  if (typeof c.v === 'boolean') return c.v ? 'Y' : 'N';
+  if (typeof c.v === 'number') return c.v.toLocaleString('ko-KR');
+  return String(c.v).trim();
+}
+
+
+/* ── 열 역할 추론 ─────────────────────────── */
+
+const BADGE_WORDS = /^(urgent|hot|new|standard|긴급|급구|신규|마감|보류|진행)/i;
+const MONEY_WORD  = /salary|연봉|급여|보수|pay|rate|단가|금액|비용|fee/;
+const NAME_WORD   = /\bam\b|담당|매니저|manager|owner|recruiter|헤드|pic/;
+const MUTED_WORD  = /location|근무지|지역|위치|요건|requirement|비고|note|메모|기타|상세/;
+
+/**
+ * 열의 성격을 헤더 이름과 실제 값으로 추론합니다.
+ * 이름이 우선이고, 값 패턴은 보조 판단입니다.
+ */
+function detectRole(label, values, index) {
+  const l = String(label).toLowerCase().replace(/\s+/g, '');
+  const filled = values.filter(Boolean);
+
+  if (/urgen|긴급|우선순위|priority|status|상태/.test(l)) return 'badge';
+  if (filled.length >= 3) {
+    const hits = filled.filter(v => BADGE_WORDS.test(v)).length;
+    if (hits / filled.length > 0.6) return 'badge';
+  }
+
+  if (MONEY_WORD.test(l)) return 'money';
+  if (NAME_WORD.test(l))  return 'name';
+  if (MUTED_WORD.test(l)) return 'muted';
+
+  if (index === 0) return 'primary';
+  if (index === 1) return 'secondary';
+  return '';
+}
+
+/** 열 너비를 내용 길이로 배분합니다 */
+function detectWeight(label, values, role) {
+  if (role === 'badge') return 10;
+
+  const lens = values.filter(Boolean).map(v => v.length);
+  lens.sort((a, b) => a - b);
+
+  // 최댓값 대신 상위 90% 지점을 씁니다. 유난히 긴 셀 하나에 끌려가지 않게.
+  const p90 = lens.length ? lens[Math.floor(lens.length * 0.9)] : 0;
+  const raw = Math.max(String(label).length, p90 || 0);
+
+  return Math.min(34, Math.max(7, raw));
+}
+
+
+/* ── 파싱 ─────────────────────────────────── */
+
+function parse(table) {
+  const cols = table.cols || [];
+  const hide = HIDE_COLUMNS.map(h => String(h).toLowerCase().replace(/\s+/g, ''));
+
+  // 헤더가 비어 있지 않고 숨김 목록에 없는 열만 씁니다
+  const keep = [];
+  cols.forEach((c, i) => {
+    const label = String(c.label || '').trim();
+    if (!label) return;
+    if (hide.includes(label.toLowerCase().replace(/\s+/g, ''))) return;
+    keep.push({ index: i, label });
+  });
+
+  if (!keep.length) return { columns: [], rows: [] };
+
+  const rawRows = (table.rows || [])
+    .map(r => keep.map(k => cellText(r.c && r.c[k.index])))
+    .filter(cells => cells.some(Boolean));   // 완전히 빈 행 제거
+
+  const cols2 = keep.map((k, n) => {
+    const values = rawRows.map(r => r[n]);
+    const role   = detectRole(k.label, values, n);
+    return { label: k.label, role, weight: detectWeight(k.label, values, role) };
+  });
+
+  return { columns: cols2, rows: rawRows };
+}
+
+
+/* ── 렌더링 ───────────────────────────────── */
+
+function fitRows() {
+  const rowH = Math.max(52, Math.min(96, Math.round(window.innerHeight * 0.072)));
+  document.documentElement.style.setProperty('--row-h', rowH + 'px');
+
+  // 열이 많아지면 글자를 줄여 잘림을 막습니다
+  const n  = Math.max(1, columns.length);
+  const fs = Math.max(0.95, Math.min(1.5, 1.5 - Math.max(0, n - 7) * 0.075));
+  document.documentElement.style.setProperty('--cell-fs', fs.toFixed(2) + 'rem');
+
+  if (PAGE_SIZE !== 'auto') { pageSize = PAGE_SIZE; return; }
+
+  const main  = document.querySelector('main');
+  const thead = document.querySelector('thead');
+  const cs    = getComputedStyle(main);
+  const avail = main.clientHeight
+              - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
+              - thead.offsetHeight;
+
+  pageSize = Math.max(1, Math.floor(avail / rowH));
+}
+
+function drawHead() {
+  const tr = $('table-head');
+  tr.innerHTML = '';
+
+  const total = columns.reduce((s, c) => s + c.weight, 0) || 1;
+
+  columns.forEach(col => {
+    const th = document.createElement('th');
+    th.textContent = col.label;          // 시트 1행 그대로
+    th.title = col.label;
+    th.style.width = (col.weight / total * 100).toFixed(2) + '%';
+    tr.appendChild(th);
+  });
+}
+
+function badgeFor(text) {
+  const u = String(text || '').toUpperCase().trim();
+  const span = document.createElement('span');
+  span.className = 'badge ';
+
+  if (/URGENT|긴급|급구/.test(u))      { span.className += 'badge-urgent';   span.textContent = '🚨 ' + u; }
+  else if (/HOT|마감/.test(u))         { span.className += 'badge-hot';      span.textContent = '🔥 ' + u; }
+  else if (/NEW|신규/.test(u))         { span.className += 'badge-new';      span.textContent = '✨ ' + u; }
+  else                                 { span.className += 'badge-standard'; span.textContent = u || 'STANDARD'; }
+
+  return span;
+}
+
+function drawPage() {
+  const tbody = $('table-body');
+  tbody.innerHTML = '';
+
+  if (!rows.length) { $('page-indicator').textContent = 'PAGE — / —'; return; }
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  if (page >= totalPages) page = 0;
+
+  $('page-indicator').textContent = `PAGE ${page + 1} / ${totalPages}`;
+
+  rows.slice(page * pageSize, page * pageSize + pageSize).forEach(cells => {
+    const tr = document.createElement('tr');
+
+    cells.forEach((val, i) => {
+      const col = columns[i];
+      const td  = document.createElement('td');
+
+      if (col.role === 'badge') {
+        td.appendChild(badgeFor(val));
+      } else {
+        td.textContent = val || '-';      // textContent — 따옴표·꺾쇠 안전
+        td.title = val;
+        if (col.role) td.className = 'role-' + col.role;
+        if (!val) td.className += ' is-blank';
+      }
+      tr.appendChild(td);
+    });
+
+    tbody.appendChild(tr);
+  });
+}
+
+function turnTo(next) {
+  const tbody = $('table-body');
+  if (!rows.length) return;
+  tbody.classList.add('turning');
+  setTimeout(() => {
+    page = next;
+    drawPage();
+    requestAnimationFrame(() => tbody.classList.remove('turning'));
+  }, 280);
+}
+
+function restartPaging() {
+  clearInterval(pageTimer);
+  pageTimer = setInterval(() => {
+    if (rows.length <= pageSize) return;
+    const total = Math.max(1, Math.ceil(rows.length / pageSize));
+    turnTo((page + 1) % total);
+  }, PAGE_INTERVAL);
+}
+
+
+/* ── 상태 표시 ────────────────────────────── */
+
+function setSync(state, text) {
+  $('sync').dataset.state = state;
+  $('sync-text').textContent = text;
+}
+
+function showNotice(title, detail) {
+  $('notice').classList.add('on');
+  $('notice').innerHTML = '<b></b><span></span>';
+  $('notice').querySelector('b').textContent = title;
+  $('notice').querySelector('span').innerHTML = detail;
+}
+
+function hideNotice() { $('notice').classList.remove('on'); }
+
+
+/* ── 티커 ─────────────────────────────────── */
+
+function setTicker(text) {
+  const el = $('ticker-text');
+  el.textContent = text;
+
+  requestAnimationFrame(() => {
+    const cw = $('ticker-container').clientWidth;
+    const tw = el.scrollWidth;
+    const speed = 90; // px/sec
+    el.style.setProperty('--from', cw + 'px');
+    el.style.setProperty('--to', -tw + 'px');
+    el.style.setProperty('--dur', ((cw + tw) / speed).toFixed(1) + 's');
+    el.style.animation = 'none';
+    void el.offsetWidth;
+    el.style.animation = '';
+  });
+}
+
+async function syncNotices() {
+  if (!NOTICE_SHEET_NAME) return;
+  try {
+    const res = await loadSheet(NOTICE_SHEET_NAME, 0);   // 공지 탭은 헤더 없음
+    if (res.status === 'error') return;
+
+    const lines = (res.table.rows || [])
+      .map(r => (r.c && r.c[0] && r.c[0].v) ? String(r.c[0].v).trim() : '')
+      .filter(Boolean);
+
+    if (lines.length) setTicker(lines.join('   •   '));
+  } catch (_) { /* 공지 실패가 보드를 멈추지는 않습니다 */ }
+}
+
+
+/* ── 동기화 ───────────────────────────────── */
+
+async function sync() {
+  if (!SHEET_ID) {
+    setSync('error', '설정 필요');
+    showNotice('시트 ID가 비어 있습니다',
+      '이 파일을 열어 <code>SHEET_ID</code> 를 채워 주세요. ' +
+      '시트 주소의 <code>/d/</code> 와 <code>/edit</code> 사이 문자열입니다.<br><br>' +
+      '시트는 공유 → <b>링크가 있는 모든 사용자 · 뷰어</b> 여야 합니다.');
+    setTicker(FALLBACK_NOTICE);
+    return;
+  }
+
+  if (!rows.length) setSync('loading', '불러오는 중');
+
+  try {
+    const res = await loadSheet(SHEET_NAME);
+
+    if (res.status === 'error') {
+      const e = (res.errors && res.errors[0]) || {};
+      throw new Error(e.detailed_message || e.message || '시트가 응답을 거부했습니다');
+    }
+
+    const parsed = parse(res.table);
+
+    if (!parsed.columns.length) {
+      throw new Error('1행에서 열 이름을 찾지 못했습니다');
+    }
+
+    // 헤더 구성이 바뀌었을 때만 thead 를 다시 그립니다
+    const changed = parsed.columns.length !== columns.length
+                 || parsed.columns.some((c, i) => !columns[i] || c.label !== columns[i].label);
+
+    columns = parsed.columns;
+    rows    = parsed.rows;
+    lastSuccess = Date.now();
+
+    if (changed) { fitRows(); drawHead(); }
+
+    $('total-count').textContent = rows.length + ' ACTIVE POSITIONS';
+    setSync('ok', '동기화 ' + new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
+
+    if (rows.length) {
+      hideNotice();
+      drawPage();
+      restartPaging();
+    } else {
+      showNotice('표시할 행이 없습니다',
+        '1행 아래에 데이터가 있는지, 탭 이름이 <code>SHEET_NAME</code> 과 맞는지 확인해 주세요.');
+    }
+
+  } catch (err) {
+    if (rows.length) {
+      setSync('error', '동기화 실패 · 이전 데이터');   // 화면은 유지
+    } else {
+      setSync('error', '연결 실패');
+      showNotice('시트를 읽지 못했습니다',
+        '공유 설정이 <b>링크가 있는 모든 사용자 · 뷰어</b> 인지, ' +
+        'SHEET_ID 와 탭 이름이 맞는지 확인해 주세요.<br><br>' +
+        '<code>' + String(err.message).replace(/</g, '&lt;') + '</code>');
+      setTicker(FALLBACK_NOTICE);
+    }
+  }
+}
+
+function checkStale() {
+  if (!lastSuccess) return;
+  const age = Date.now() - lastSuccess;
+  if (age > STALE_AFTER && $('sync').dataset.state !== 'error') {
+    setSync('stale', Math.round(age / 60000) + '분 전 데이터');
+  }
+}
+
+
+/* ── 조작 ─────────────────────────────────── */
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'r' || e.key === 'R') { sync(); return; }
+  if (e.key === 'f' || e.key === 'F') {
+    document.fullscreenElement ? document.exitFullscreen()
+                               : document.documentElement.requestFullscreen();
+    return;
+  }
+  if (!rows.length) return;
+  const total = Math.max(1, Math.ceil(rows.length / pageSize));
+  if (e.key === 'ArrowRight') { turnTo((page + 1) % total); restartPaging(); }
+  if (e.key === 'ArrowLeft')  { turnTo((page - 1 + total) % total); restartPaging(); }
+});
+
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    fitRows(); drawHead(); drawPage();
+    setTicker($('ticker-text').textContent);
+  }, 250);
+});
+
+
+/* ── 시작 ─────────────────────────────────── */
+
+fitRows();
+setTicker(FALLBACK_NOTICE);
+sync();
+syncNotices();
+restartPaging();
+
+setInterval(sync, SYNC_INTERVAL);
+setInterval(syncNotices, SYNC_INTERVAL * 5);
+setInterval(checkStale, 30000);
+</script>
+</body>
+</html>
