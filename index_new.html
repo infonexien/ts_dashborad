@@ -149,7 +149,7 @@
 <header>
   <div class="brand">
     <div class="logo">NEXIEN</div>
-    <div class="title">INTERNAL POSITION BOARD</div>
+    <div class="title">POSITION BOARD</div>
   </div>
   <div class="meta-info">
     <span class="sync" id="sync" data-state="loading">
@@ -525,7 +525,7 @@ async function sync() {
     if (changed) { fitRows(); drawHead(); }
 
     $('total-count').textContent = rows.length + ' ACTIVE POSITIONS';
-    setSync('ok', '동기화 ' + new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
+    setSync('ok', '');
 
     if (rows.length) {
       hideNotice();
